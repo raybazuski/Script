@@ -26,10 +26,12 @@ g.Parent = pg
 
 local blackBg = Instance.new("Frame")
 blackBg.Size = UDim2.new(1, 0, 1, 0)
+blackBg.Position = UDim2.new(0, 0, 0, 0)
 blackBg.BackgroundColor3 = Color3.new(0, 0, 0)
 blackBg.BackgroundTransparency = 0
 blackBg.BorderSizePixel = 0
 blackBg.Visible = SCREENSAVER_ENABLED
+blackBg.ZIndex = 1
 blackBg.Parent = g
 
 local st = Instance.new("TextLabel")
@@ -40,27 +42,41 @@ st.TextColor3 = Color3.new(1, 1, 1)
 st.Font = Enum.Font.GothamBold
 st.TextScaled = true
 st.Text = "TAP TO START | SS: ON"
+st.ZIndex = 2
 st.Parent = blackBg
 
 local scoreLabel = Instance.new("TextLabel")
 scoreLabel.Size = UDim2.new(0.6, 0, 0, 50)
-scoreLabel.Position = UDim2.new(0.2, 0, 0.4, 0)
+scoreLabel.Position = UDim2.new(0.2, 0, 0.35, 0)
 scoreLabel.BackgroundTransparency = 1
 scoreLabel.TextColor3 = Color3.new(1, 1, 0)
 scoreLabel.Font = Enum.Font.GothamBold
 scoreLabel.TextScaled = true
 scoreLabel.Text = "SCORE: 0"
+scoreLabel.ZIndex = 2
 scoreLabel.Parent = blackBg
 
 local fb = Instance.new("TextButton")
-fb.Size = UDim2.new(0.6, 0, 0, 80)
-fb.Position = UDim2.new(0.2, 0, 0.6, 0)
+fb.Size = UDim2.new(0.6, 0, 0, 70)
+fb.Position = UDim2.new(0.2, 0, 0.55, 0)
 fb.BackgroundColor3 = Color3.fromRGB(0, 120, 0)
 fb.TextColor3 = Color3.new(1, 1, 1)
 fb.Font = Enum.Font.GothamBold
 fb.TextScaled = true
 fb.Text = "TAP TO START"
+fb.ZIndex = 2
 fb.Parent = blackBg
+
+local ssBtn = Instance.new("TextButton")
+ssBtn.Size = UDim2.new(0.4, 0, 0, 40)
+ssBtn.Position = UDim2.new(0.3, 0, 0.8, 0)
+ssBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ssBtn.TextColor3 = Color3.new(1, 1, 1)
+ssBtn.Font = Enum.Font.GothamBold
+ssBtn.TextScaled = true
+ssBtn.Text = "SS: ON"
+ssBtn.ZIndex = 2
+ssBtn.Parent = blackBg
 
 local on = false
 local collectedCache = {}
@@ -70,6 +86,7 @@ local lastGuiUpdate = 0
 local lastScoreUpdate = 0
 local screensaverOn = SCREENSAVER_ENABLED
 local farmingThread = nil
+local watchdogThread = nil
 
 local function getScore()
     local s = plr:FindFirstChild("stats")
@@ -117,6 +134,7 @@ end)
 local function toggleScreensaver()
     screensaverOn = not screensaverOn
     blackBg.Visible = screensaverOn
+    ssBtn.Text = "SS: " .. (screensaverOn and "ON" or "OFF")
     st.Text = string.gsub(st.Text, "SS: %w+", "SS: " .. (screensaverOn and "ON" or "OFF"))
 end
 
@@ -226,11 +244,9 @@ local function collectItem(prompt)
     return success
 end
 
--- The actual farming logic wrapped in a safe loop
 local function farmingLoop()
     while on do
-        local success, err = pcall(function()
-            -- Wait for character and alive
+        local ok, err = pcall(function()
             while on and not isAlive() do
                 if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
                     st.Text = "WAITING RESPAWN... | SS: " .. (screensaverOn and "ON" or "OFF")
@@ -240,7 +256,6 @@ local function farmingLoop()
             end
             if not on then return end
 
-            -- Check folder exists
             if not Workspace:FindFirstChild(LOOT_FOLDER) then
                 st.Text = "FOLDER MISSING - RETRYING... | SS: " .. (screensaverOn and "ON" or "OFF")
                 task.wait(2)
@@ -357,12 +372,10 @@ local function farmingLoop()
             task.wait(0.3)
         end)
 
-        if not success then
-            -- An error occurred, show it and restart after delay
+        if not ok then
             st.Text = "ERROR: " .. tostring(err) .. " - RESTARTING..."
             print("FARM ERROR:", err)
             task.wait(2)
-            -- Clear cache to start fresh
             collectedCache = {}
         end
     end
@@ -371,6 +384,21 @@ local function farmingLoop()
     stopHover()
     st.Text = "STOPPED | SS: " .. (screensaverOn and "ON" or "OFF")
 end
+
+local function watchdog()
+    while true do
+        if on then
+            if not farmingThread or task.status(farmingThread) == "dead" then
+                st.Text = "RESTARTING FARM... | SS: " .. (screensaverOn and "ON" or "OFF")
+                task.wait(1)
+                farmingThread = task.spawn(farmingLoop)
+            end
+        end
+        task.wait(2)
+    end
+end
+
+watchdogThread = task.spawn(watchdog)
 
 local function toggle()
     on = not on
@@ -382,8 +410,9 @@ local function toggle()
         st.Text = "STARTING... | SS: " .. (screensaverOn and "ON" or "OFF")
         updateScore()
         setNoclip(true)
-        -- Start the farming loop in a thread
-        farmingThread = task.spawn(farmingLoop)
+        if not farmingThread or task.status(farmingThread) == "dead" then
+            farmingThread = task.spawn(farmingLoop)
+        end
     else
         fb.Text = "FARM: OFF"
         fb.BackgroundColor3 = Color3.fromRGB(0, 120, 0)
@@ -397,13 +426,8 @@ local function toggle()
     end
 end
 
-local function toggleScreensaver()
-    screensaverOn = not screensaverOn
-    blackBg.Visible = screensaverOn
-    st.Text = string.gsub(st.Text, "SS: %w+", "SS: " .. (screensaverOn and "ON" or "OFF"))
-end
-
 fb.MouseButton1Click:Connect(toggle)
+ssBtn.MouseButton1Click:Connect(toggleScreensaver)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
@@ -413,4 +437,5 @@ end)
 
 updateScore()
 st.Text = "TAP TO START | SS: ON"
-print("[[Ω_TRACE_PERSIST]] LOADED – Press F to toggle farm, S to toggle screensaver, auto-recovery on errors")
+ssBtn.Text = "SS: ON"
+print("[[Ω_TRACE_PERSIST]] LOADED – Mobile ready – SS button added")
