@@ -1,347 +1,342 @@
--- Siren Head Legacy - Money Crate Farm (Mobile)
--- Only targets real money crates ($ / Buy)
-
 local Players = game:GetService("Players")
-local CollectionService = game:GetService("CollectionService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterGui = game:GetService("StarterGui")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
 
-local player = Players.LocalPlayer
-local pg = player:WaitForChild("PlayerGui")
+local plr = Players.LocalPlayer
+local pg = plr:WaitForChild("PlayerGui")
 
--- clean old
-pcall(function()
-	for _, n in ipairs({"CrateFarmUI", "CrateFarmButtons", "PowerSaver"}) do
-		local o = pg:FindFirstChild(n)
-		if o then o:Destroy() end
-	end
+-- ===== CONFIGURATION =====
+local LOOT_FOLDER = "crates"
+local TELEPORT_DELAY = 0.076
+local TP_OFFSET = Vector3.new(0, 4.7, 0)
+local USE_NOCLIP = true
+local HOVER_UPDATE_INTERVAL = 0.15
+local GUI_UPDATE_INTERVAL = 0.3        -- status updates
+local SCORE_UPDATE_INTERVAL = 3        -- fallback score update (seconds)
+local EXTRA_WAIT_AFTER_TP = 0.05
+-- =========================
+
+pcall(function() pg:FindFirstChild("CFU"):Destroy() end)
+
+local g = Instance.new("ScreenGui")
+g.Name = "CFU"
+g.ResetOnSpawn = false
+g.DisplayOrder = 999999
+g.Parent = pg
+
+-- Black overlay
+local blackBg = Instance.new("Frame")
+blackBg.Size = UDim2.new(1, 0, 1, 0)
+blackBg.BackgroundColor3 = Color3.new(0, 0, 0)
+blackBg.BackgroundTransparency = 0
+blackBg.BorderSizePixel = 0
+blackBg.Parent = g
+
+-- Status label
+local st = Instance.new("TextLabel")
+st.Size = UDim2.new(0.9, 0, 0, 60)
+st.Position = UDim2.new(0.05, 0, 0, 0)
+st.BackgroundTransparency = 1
+st.TextColor3 = Color3.new(1, 1, 1)
+st.Font = Enum.Font.GothamBold
+st.TextScaled = true
+st.Text = "READY"
+st.Parent = blackBg
+
+-- Score label
+local scoreLabel = Instance.new("TextLabel")
+scoreLabel.Size = UDim2.new(0.6, 0, 0, 50)
+scoreLabel.Position = UDim2.new(0.2, 0, 0.4, 0)
+scoreLabel.BackgroundTransparency = 1
+scoreLabel.TextColor3 = Color3.new(1, 1, 0)  -- gold
+scoreLabel.Font = Enum.Font.GothamBold
+scoreLabel.TextScaled = true
+scoreLabel.Text = "SCORE: 0"
+scoreLabel.Parent = blackBg
+
+-- Button
+local fb = Instance.new("TextButton")
+fb.Size = UDim2.new(0.6, 0, 0, 80)
+fb.Position = UDim2.new(0.2, 0, 0.6, 0)
+fb.BackgroundColor3 = Color3.fromRGB(0, 120, 0)
+fb.TextColor3 = Color3.new(1, 1, 1)
+fb.Font = Enum.Font.GothamBold
+fb.TextScaled = true
+fb.Text = "TAP TO START"
+fb.Parent = blackBg
+
+local on = false
+local collectedCache = {}
+local totalCollected = 0
+local hoverThread = nil
+local lastGuiUpdate = 0
+local lastScoreUpdate = 0
+
+-- Score update function
+local function updateScore()
+    local s = plr:FindFirstChild("stats")
+    if s then
+        local score = s:FindFirstChild("Score")
+        if score then
+            scoreLabel.Text = "SCORE: " .. tostring(score.Value)
+            return
+        end
+    end
+    scoreLabel.Text = "SCORE: 0"
+end
+
+-- Listen for score changes
+local function setupScoreListener()
+    local s = plr:FindFirstChild("stats")
+    if s then
+        local score = s:FindFirstChild("Score")
+        if score then
+            score.Changed:Connect(function()
+                updateScore()
+            end)
+        end
+    end
+end
+setupScoreListener()
+
+-- Also update periodically (fallback)
+game:GetService("RunService").Heartbeat:Connect(function()
+    if tick() - lastScoreUpdate > SCORE_UPDATE_INTERVAL then
+        updateScore()
+        lastScoreUpdate = tick()
+    end
 end)
 
-----------------------------------------------------------------
--- UI
-----------------------------------------------------------------
-local gui = Instance.new("ScreenGui")
-gui.Name = "CrateFarmUI"
-gui.ResetOnSpawn = false
-gui.DisplayOrder = 999999
-gui.IgnoreGuiInset = true
-gui.Parent = pg
-
--- top status
-local status = Instance.new("TextLabel")
-status.Size = UDim2.new(1, 0, 0, 40)
-status.Position = UDim2.new(0, 0, 0, 0)
-status.BackgroundColor3 = Color3.fromRGB(0, 120, 0)
-status.TextColor3 = Color3.new(1, 1, 1)
-status.Font = Enum.Font.GothamBold
-status.TextScaled = true
-status.Text = "CRATE FARM READY"
-status.Parent = gui
-
--- farm button (center)
-local farmBtn = Instance.new("TextButton")
-farmBtn.Size = UDim2.new(0.55, 0, 0, 55)
-farmBtn.Position = UDim2.new(0.225, 0, 0.42, 0)
-farmBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
-farmBtn.TextColor3 = Color3.new(1, 1, 1)
-farmBtn.Font = Enum.Font.GothamBold
-farmBtn.TextScaled = true
-farmBtn.Text = "FARM: OFF"
-farmBtn.Parent = gui
-
--- saver button
-local saverBtn = Instance.new("TextButton")
-saverBtn.Size = UDim2.new(0.55, 0, 0, 55)
-saverBtn.Position = UDim2.new(0.225, 0, 0.52, 0)
-saverBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-saverBtn.TextColor3 = Color3.new(1, 1, 1)
-saverBtn.Font = Enum.Font.GothamBold
-saverBtn.TextScaled = true
-saverBtn.Text = "SAVER: OFF"
-saverBtn.Parent = gui
-
-local function round(b)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 12)
-	c.Parent = b
-end
-round(farmBtn)
-round(saverBtn)
-
--- power saver screen
-local saverGui = Instance.new("ScreenGui")
-saverGui.Name = "PowerSaver"
-saverGui.ResetOnSpawn = false
-saverGui.DisplayOrder = 999998
-saverGui.Enabled = false
-saverGui.IgnoreGuiInset = true
-saverGui.Parent = pg
-
-local black = Instance.new("Frame")
-black.Size = UDim2.fromScale(1, 1)
-black.BackgroundColor3 = Color3.new(0, 0, 0)
-black.Parent = saverGui
-
-local scoreLbl = Instance.new("TextLabel")
-scoreLbl.Size = UDim2.fromScale(1, 0.2)
-scoreLbl.Position = UDim2.fromScale(0, 0.4)
-scoreLbl.BackgroundTransparency = 1
-scoreLbl.Font = Enum.Font.GothamBold
-scoreLbl.TextScaled = true
-scoreLbl.TextColor3 = Color3.new(1, 1, 1)
-scoreLbl.Text = "Score: 0"
-scoreLbl.Parent = black
-
-----------------------------------------------------------------
--- helpers
-----------------------------------------------------------------
-local farming = false
-local currentPrompt = nil
-local blacklisted = {}
-local MAX_DIST = 2000
-local MAX_TRIES = 10
-
-local remotes = ReplicatedStorage:FindFirstChild("remotes")
-local stompR = remotes and remotes:FindFirstChild("stomp")
-local pickupR = remotes and remotes:FindFirstChild("pickup")
-local grabR = remotes and remotes:FindFirstChild("grab")
-
-local function getScoreObj()
-	local s = player:FindFirstChild("stats")
-	return s and s:FindFirstChild("Score")
+-- Noclip
+local function setNoclip(state)
+    if not USE_NOCLIP then return end
+    local char = plr.Character
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = not state
+        end
+    end
 end
 
-local scoreConn
-local function bindScore()
-	local s = getScoreObj()
-	if not s then return end
-	scoreLbl.Text = "Score: " .. tostring(s.Value)
-	if scoreConn then scoreConn:Disconnect() end
-	scoreConn = s:GetPropertyChangedSignal("Value"):Connect(function()
-		scoreLbl.Text = "Score: " .. tostring(s.Value)
-	end)
+-- Hover
+local function startHover(targetPos)
+    if hoverThread then
+        task.cancel(hoverThread)
+        hoverThread = nil
+    end
+    hoverThread = task.spawn(function()
+        while on and hoverThread do
+            local h = getHRP()
+            if h then
+                h.CFrame = CFrame.new(targetPos, targetPos + Vector3.new(0, -1, 0))
+            end
+            task.wait(HOVER_UPDATE_INTERVAL)
+        end
+    end)
 end
 
-local function getScore()
-	local s = getScoreObj()
-	return s and s.Value or 0
+local function stopHover()
+    if hoverThread then
+        task.cancel(hoverThread)
+        hoverThread = nil
+    end
 end
 
 local function getHRP()
-	local c = player.Character
-	return c and c:FindFirstChild("HumanoidRootPart")
+    local c = plr.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
 end
 
-local function waitHRP()
-	while farming do
-		local h = getHRP()
-		if h then return h end
-		task.wait(0.4)
-	end
-end
-
-local function fireRemotes(prompt)
-	local function fire(r, ...)
-		if r and r:IsA("RemoteEvent") then
-			pcall(function() r:FireServer(...) end)
-		end
-	end
-	fire(stompR, prompt)
-	fire(pickupR, prompt)
-	fire(grabR, prompt)
-	fire(stompR)
-	fire(pickupR)
-	if prompt and prompt.Parent then
-		fire(stompR, prompt.Parent)
-		fire(pickupR, prompt.Parent)
-	end
-end
-
--- ONLY money crates
-local function isMoney(prompt)
-	if not prompt:IsA("ProximityPrompt") then return false end
-	if not prompt.Enabled or not prompt.Parent then return false end
-	if blacklisted[prompt] then return false end
-	local act = string.lower(tostring(prompt.ActionText or ""))
-	local obj = tostring(prompt.ObjectText or "")
-	if act == "buy" and obj:find("%$") then return true end
-	if obj:match("^%$%d+") then return true end
-	return false
+local function isAlive()
+    local c = plr.Character
+    local hum = c and c:FindFirstChild("Humanoid")
+    return hum and hum.Health > 0
 end
 
 local function getCrates()
-	local list, seen = {}, {}
-	local hrp = getHRP()
-	local pos = hrp and hrp.Position or Vector3.zero
+    local list = {}
+    local folder = Workspace:FindFirstChild(LOOT_FOLDER)
+    if not folder then return list end
 
-	local function add(p)
-		if isMoney(p) and not seen[p] then
-			local part = p.Parent
-			if not part:IsA("BasePart") then
-				part = part:FindFirstChildWhichIsA("BasePart", true)
-			end
-			if part then
-				local d = (part.Position - pos).Magnitude
-				if d <= MAX_DIST then
-					seen[p] = true
-					table.insert(list, {prompt = p, part = part, dist = d})
-				end
-			end
-		end
-	end
+    for _, model in ipairs(folder:GetChildren()) do
+        local prompt = model:FindFirstChildWhichIsA("ProximityPrompt")
+        if not prompt then
+            prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+        end
 
-	for _, p in ipairs(CollectionService:GetTagged("crate_prompt")) do add(p) end
-	for _, p in ipairs(workspace:GetDescendants()) do
-		if p:IsA("ProximityPrompt") then add(p) end
-	end
-	table.sort(list, function(a, b) return a.dist < b.dist end)
-	return list
+        local part = model:FindFirstChild("main")
+        if not part or not part:IsA("BasePart") then
+            for _, child in ipairs(model:GetChildren()) do
+                if child:IsA("BasePart") then
+                    part = child
+                    break
+                end
+            end
+        end
+
+        if prompt and part and prompt.Enabled then
+            local key = tostring(model)
+            if not collectedCache[key] then
+                table.insert(list, {
+                    prompt = prompt,
+                    part = part,
+                    key = key,
+                    name = model.Name
+                })
+            end
+        end
+    end
+    return list
 end
 
-local function tp(part)
-	local hrp = getHRP()
-	if not hrp or not part then return false end
-	local target = part.Position + Vector3.new(0, 3.2, 0)
-	for i = 1, 12 do
-		if not farming then return false end
-		hrp.CFrame = CFrame.new(target)
-		hrp.AssemblyLinearVelocity = Vector3.zero
-		task.wait(0.025)
-	end
-	return true
+local function teleportToPart(part)
+    local h = getHRP()
+    if not h or not part or not isAlive() then return false end
+    local targetPos = part.Position + TP_OFFSET
+
+    if (h.Position - targetPos).Magnitude < 3 then
+        h.CFrame = CFrame.new(targetPos, targetPos + Vector3.new(0, -1, 0))
+        return true
+    end
+
+    h.CFrame = CFrame.new(targetPos, targetPos + Vector3.new(0, -1, 0))
+    task.wait(TELEPORT_DELAY)
+    return true
 end
 
-local function collect(prompt, part)
-	if not prompt or not prompt.Parent or not prompt.Enabled then return false end
-	currentPrompt = prompt
-	local start = getScore()
-	local hold = math.max(prompt.HoldDuration or 1, 1)
-
-	fireRemotes(prompt)
-	pcall(function() prompt:InputHoldBegin() end)
-	pcall(function() if fireproximityprompt then fireproximityprompt(prompt) end end)
-
-	local endt = tick() + hold + 2.5
-	while tick() < endt and farming do
-		if not getHRP() then
-			waitHRP()
-			if not farming then break end
-		end
-		tp(part)
-		fireRemotes(prompt)
-		if not prompt.Parent or not prompt.Enabled then break end
-		if getScore() > start then break end
-		task.wait(0.1)
-	end
-	pcall(function() prompt:InputHoldEnd() end)
-	currentPrompt = nil
-	task.wait(0.4)
-	return getScore() > start or not prompt.Parent or not prompt.Enabled
+local function collectItem(prompt)
+    if not prompt or not prompt.Parent then return false end
+    local original = prompt.HoldDuration
+    prompt.HoldDuration = 0
+    local success = pcall(function()
+        fireproximityprompt(prompt)
+    end)
+    return success
 end
 
-----------------------------------------------------------------
--- loop
-----------------------------------------------------------------
-local function farmLoop()
-	status.Text = "FARM RUNNING..."
-	status.BackgroundColor3 = Color3.fromRGB(0, 160, 0)
+local function farmingLoop()
+    setNoclip(true)
 
-	while farming do
-		if not getHRP() then
-			status.Text = "WAITING RESPAWN..."
-			waitHRP()
-			if not farming then break end
-			task.wait(0.6)
-		end
+    while on do
+        while on and not isAlive() do
+            if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                st.Text = "WAITING RESPAWN..."
+                lastGuiUpdate = tick()
+            end
+            task.wait(0.5)
+        end
+        if not on then break end
 
-		local crates = getCrates()
-		status.Text = "FOUND " .. #crates .. " MONEY CRATES"
+        local crates = getCrates()
+        if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+            st.Text = "CRATES: " .. #crates .. " | Collected: " .. totalCollected
+            lastGuiUpdate = tick()
+        end
 
-		if #crates == 0 then
-			task.wait(1.5)
-		else
-			for _, e in ipairs(crates) do
-				if not farming then break end
-				if not getHRP() then
-					waitHRP()
-					if not farming then break end
-				end
+        if #crates == 0 then
+            if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                st.Text = "NO CRATES - RESETTING"
+                lastGuiUpdate = tick()
+            end
+            task.wait(1.5)
+            if #collectedCache > 0 then
+                collectedCache = {}
+            end
+        else
+            for _, crate in ipairs(crates) do
+                if not on then break end
+                if not isAlive() then break end
 
-				local prompt, part = e.prompt, e.part
-				if prompt.Parent and prompt.Enabled and not blacklisted[prompt] then
-					status.Text = "GOING → " .. tostring(prompt.ObjectText)
+                if collectedCache[crate.key] then
+                    if crate.prompt.Parent and crate.prompt.Enabled then
+                        collectedCache[crate.key] = nil
+                    else
+                        continue
+                    end
+                end
 
-					local ok, tries = false, 0
-					while farming and not ok and tries < MAX_TRIES do
-						tries = tries + 1
-						if not getHRP() then
-							waitHRP()
-							if not farming then break end
-						end
-						if tp(part) then
-							task.wait(0.12)
-							ok = collect(prompt, part)
-						end
-						if not (prompt.Parent and prompt.Enabled) then ok = true end
-						if not ok then task.wait(0.25) end
-					end
+                if not crate.prompt.Parent or not crate.prompt.Enabled then
+                    collectedCache[crate.key] = true
+                    continue
+                end
 
-					if ok then
-						status.Text = "COLLECTED " .. tostring(prompt.ObjectText)
-					else
-						blacklisted[prompt] = true
-						status.Text = "FAILED - SKIPPED"
-					end
-				end
-			end
-		end
-		task.wait(0.4)
-	end
+                if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                    st.Text = "TP → " .. crate.name
+                    lastGuiUpdate = tick()
+                end
 
-	status.Text = "FARM STOPPED"
-	status.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
+                if teleportToPart(crate.part) then
+                    local targetPos = crate.part.Position + TP_OFFSET
+                    startHover(targetPos)
+
+                    task.wait(EXTRA_WAIT_AFTER_TP + math.random() * 0.05)
+
+                    if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                        st.Text = "COLLECTING " .. crate.name
+                        lastGuiUpdate = tick()
+                    end
+
+                    local success = collectItem(crate.prompt)
+                    if success then
+                        totalCollected = totalCollected + 1
+                        if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                            st.Text = "COLLECTED (" .. totalCollected .. "): " .. crate.name
+                            lastGuiUpdate = tick()
+                        end
+                        collectedCache[crate.key] = true
+                    else
+                        if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                            st.Text = "FAILED: " .. crate.name
+                            lastGuiUpdate = tick()
+                        end
+                    end
+
+                    stopHover()
+                    task.wait(0.2)
+                else
+                    if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                        st.Text = "TP FAILED"
+                        lastGuiUpdate = tick()
+                    end
+                    task.wait(0.5)
+                end
+            end
+        end
+        task.wait(0.3)
+    end
+
+    setNoclip(false)
+    stopHover()
+    st.Text = "STOPPED"
 end
 
-----------------------------------------------------------------
--- buttons
-----------------------------------------------------------------
-local function toggleFarm()
-	farming = not farming
-	if farming then
-		farmBtn.Text = "FARM: ON"
-		farmBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-		blacklisted = {}
-		task.spawn(farmLoop)
-	else
-		farmBtn.Text = "FARM: OFF"
-		farmBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
-		if currentPrompt then
-			pcall(function() currentPrompt:InputHoldEnd() end)
-			currentPrompt = nil
-		end
-		status.Text = "FARM STOPPED"
-		status.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
-	end
+local function toggle()
+    on = not on
+    if on then
+        fb.Text = "FARM: ON"
+        fb.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        collectedCache = {}
+        totalCollected = 0
+        st.Text = "STARTING..."
+        updateScore()   -- immediate update
+        task.spawn(farmingLoop)
+    else
+        fb.Text = "FARM: OFF"
+        fb.BackgroundColor3 = Color3.fromRGB(0, 120, 0)
+        st.Text = "STOPPED"
+        stopHover()
+    end
 end
 
-local function toggleSaver()
-	saverGui.Enabled = not saverGui.Enabled
-	saverBtn.Text = saverGui.Enabled and "SAVER: ON" or "SAVER: OFF"
-	if saverGui.Enabled then bindScore() end
-end
+fb.MouseButton1Click:Connect(toggle)
 
-farmBtn.MouseButton1Click:Connect(toggleFarm)
-farmBtn.Activated:Connect(toggleFarm)
-saverBtn.MouseButton1Click:Connect(toggleSaver)
-saverBtn.Activated:Connect(toggleSaver)
-
-pcall(function()
-	StarterGui:SetCore("SendNotification", {
-		Title = "CrateFarm",
-		Text = "Loaded! Green bar + center buttons",
-		Duration = 5
-	})
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.F then toggle() end
 end)
 
-print("[CrateFarm] Loaded")
-status.Text = "CRATE FARM READY - TAP FARM"
+-- Initial score
+updateScore()
+st.Text = "TAP TO START"
+print("[[Ω_TRACE_PERSIST]] LOADED – Score updates on change + every 3s")
