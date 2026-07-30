@@ -13,6 +13,7 @@ local HOVER_UPDATE_INTERVAL = 0.15
 local GUI_UPDATE_INTERVAL = 0.3
 local SCORE_UPDATE_INTERVAL = 3
 local EXTRA_WAIT_AFTER_TP = 0.05
+local MAX_COLLECT_TIME = 8
 
 pcall(function() pg:FindFirstChild("CFU"):Destroy() end)
 
@@ -250,46 +251,73 @@ local function farmingLoop()
                     continue
                 end
 
-                if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                    st.Text = "TP → " .. crate.name
-                    lastGuiUpdate = tick()
-                end
+                local startScore = getScore()
+                local startTime = tick()
+                local collected = false
 
-                if teleportToPart(crate.part) then
-                    local targetPos = crate.part.Position + TP_OFFSET
-                    startHover(targetPos)
+                while on and (tick() - startTime) < MAX_COLLECT_TIME do
+                    if not crate.prompt.Parent or not crate.prompt.Enabled then
+                        collectedCache[crate.key] = true
+                        collected = true
+                        break
+                    end
 
-                    task.wait(EXTRA_WAIT_AFTER_TP + math.random() * 0.05)
+                    if getScore() > startScore then
+                        collected = true
+                        break
+                    end
 
                     if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                        st.Text = "COLLECTING " .. crate.name
+                        st.Text = "TP → " .. crate.name
                         lastGuiUpdate = tick()
                     end
 
-                    local success = collectItem(crate.prompt)
-                    if success then
-                        totalCollected = totalCollected + 1
+                    if teleportToPart(crate.part) then
+                        local targetPos = crate.part.Position + TP_OFFSET
+                        startHover(targetPos)
+
+                        task.wait(EXTRA_WAIT_AFTER_TP + math.random() * 0.05)
+
                         if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                            st.Text = "COLLECTED (" .. totalCollected .. "): " .. crate.name
+                            st.Text = "COLLECTING " .. crate.name
                             lastGuiUpdate = tick()
                         end
-                        collectedCache[crate.key] = true
+
+                        collectItem(crate.prompt)
+
+                        if getScore() > startScore then
+                            collected = true
+                            totalCollected = totalCollected + 1
+                            if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                                st.Text = "COLLECTED (" .. totalCollected .. "): " .. crate.name
+                                lastGuiUpdate = tick()
+                            end
+                            collectedCache[crate.key] = true
+                            stopHover()
+                            break
+                        end
+
+                        stopHover()
                     else
                         if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                            st.Text = "FAILED: " .. crate.name
+                            st.Text = "TP FAILED"
                             lastGuiUpdate = tick()
                         end
                     end
 
-                    stopHover()
                     task.wait(0.2)
-                else
+                end
+
+                if not collected then
                     if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                        st.Text = "TP FAILED"
+                        st.Text = "TIMEOUT: " .. crate.name
                         lastGuiUpdate = tick()
                     end
-                    task.wait(0.5)
+                    collectedCache[crate.key] = true
                 end
+
+                stopHover()
+                task.wait(0.2)
             end
         end
         task.wait(0.3)
