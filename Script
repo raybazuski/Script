@@ -5,16 +5,14 @@ local UserInputService = game:GetService("UserInputService")
 local plr = Players.LocalPlayer
 local pg = plr:WaitForChild("PlayerGui")
 
--- ===== CONFIGURATION =====
 local LOOT_FOLDER = "crates"
 local TELEPORT_DELAY = 0.076
 local TP_OFFSET = Vector3.new(0, 4.7, 0)
 local USE_NOCLIP = true
 local HOVER_UPDATE_INTERVAL = 0.15
-local GUI_UPDATE_INTERVAL = 0.3        -- status updates
-local SCORE_UPDATE_INTERVAL = 3        -- fallback score update (seconds)
+local GUI_UPDATE_INTERVAL = 0.3
+local SCORE_UPDATE_INTERVAL = 3
 local EXTRA_WAIT_AFTER_TP = 0.05
--- =========================
 
 pcall(function() pg:FindFirstChild("CFU"):Destroy() end)
 
@@ -24,7 +22,6 @@ g.ResetOnSpawn = false
 g.DisplayOrder = 999999
 g.Parent = pg
 
--- Black overlay
 local blackBg = Instance.new("Frame")
 blackBg.Size = UDim2.new(1, 0, 1, 0)
 blackBg.BackgroundColor3 = Color3.new(0, 0, 0)
@@ -32,7 +29,6 @@ blackBg.BackgroundTransparency = 0
 blackBg.BorderSizePixel = 0
 blackBg.Parent = g
 
--- Status label
 local st = Instance.new("TextLabel")
 st.Size = UDim2.new(0.9, 0, 0, 60)
 st.Position = UDim2.new(0.05, 0, 0, 0)
@@ -43,18 +39,16 @@ st.TextScaled = true
 st.Text = "READY"
 st.Parent = blackBg
 
--- Score label
 local scoreLabel = Instance.new("TextLabel")
 scoreLabel.Size = UDim2.new(0.6, 0, 0, 50)
 scoreLabel.Position = UDim2.new(0.2, 0, 0.4, 0)
 scoreLabel.BackgroundTransparency = 1
-scoreLabel.TextColor3 = Color3.new(1, 1, 0)  -- gold
+scoreLabel.TextColor3 = Color3.new(1, 1, 0)
 scoreLabel.Font = Enum.Font.GothamBold
 scoreLabel.TextScaled = true
 scoreLabel.Text = "SCORE: 0"
 scoreLabel.Parent = blackBg
 
--- Button
 local fb = Instance.new("TextButton")
 fb.Size = UDim2.new(0.6, 0, 0, 80)
 fb.Position = UDim2.new(0.2, 0, 0.6, 0)
@@ -72,7 +66,6 @@ local hoverThread = nil
 local lastGuiUpdate = 0
 local lastScoreUpdate = 0
 
--- Score update function
 local function updateScore()
     local s = plr:FindFirstChild("stats")
     if s then
@@ -85,7 +78,6 @@ local function updateScore()
     scoreLabel.Text = "SCORE: 0"
 end
 
--- Listen for score changes
 local function setupScoreListener()
     local s = plr:FindFirstChild("stats")
     if s then
@@ -99,7 +91,6 @@ local function setupScoreListener()
 end
 setupScoreListener()
 
--- Also update periodically (fallback)
 game:GetService("RunService").Heartbeat:Connect(function()
     if tick() - lastScoreUpdate > SCORE_UPDATE_INTERVAL then
         updateScore()
@@ -107,7 +98,6 @@ game:GetService("RunService").Heartbeat:Connect(function()
     end
 end)
 
--- Noclip
 local function setNoclip(state)
     if not USE_NOCLIP then return end
     local char = plr.Character
@@ -119,7 +109,6 @@ local function setNoclip(state)
     end
 end
 
--- Hover
 local function startHover(targetPos)
     if hoverThread then
         task.cancel(hoverThread)
@@ -319,7 +308,7 @@ local function toggle()
         collectedCache = {}
         totalCollected = 0
         st.Text = "STARTING..."
-        updateScore()   -- immediate update
+        updateScore()
         task.spawn(farmingLoop)
     else
         fb.Text = "FARM: OFF"
@@ -336,7 +325,5 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.F then toggle() end
 end)
 
--- Initial score
 updateScore()
 st.Text = "TAP TO START"
-print("[[Ω_TRACE_PERSIST]] LOADED – Score updates on change + every 3s")
