@@ -22,6 +22,7 @@ local g = Instance.new("ScreenGui")
 g.Name = "CFU"
 g.ResetOnSpawn = false
 g.DisplayOrder = 999999
+g.IgnoreGuiInset = true
 g.Parent = pg
 
 local blackBg = Instance.new("Frame")
@@ -31,7 +32,7 @@ blackBg.BackgroundColor3 = Color3.new(0, 0, 0)
 blackBg.BackgroundTransparency = 0
 blackBg.BorderSizePixel = 0
 blackBg.Visible = SCREENSAVER_ENABLED
-blackBg.ZIndex = 1
+blackBg.ZIndex = 0
 blackBg.Parent = g
 
 local st = Instance.new("TextLabel")
@@ -43,7 +44,7 @@ st.Font = Enum.Font.GothamBold
 st.TextScaled = true
 st.Text = "TAP TO START | SS: ON"
 st.ZIndex = 2
-st.Parent = blackBg
+st.Parent = g
 
 local scoreLabel = Instance.new("TextLabel")
 scoreLabel.Size = UDim2.new(0.6, 0, 0, 50)
@@ -54,7 +55,7 @@ scoreLabel.Font = Enum.Font.GothamBold
 scoreLabel.TextScaled = true
 scoreLabel.Text = "SCORE: 0"
 scoreLabel.ZIndex = 2
-scoreLabel.Parent = blackBg
+scoreLabel.Parent = g
 
 local fb = Instance.new("TextButton")
 fb.Size = UDim2.new(0.6, 0, 0, 70)
@@ -65,7 +66,7 @@ fb.Font = Enum.Font.GothamBold
 fb.TextScaled = true
 fb.Text = "TAP TO START"
 fb.ZIndex = 2
-fb.Parent = blackBg
+fb.Parent = g
 
 local ssBtn = Instance.new("TextButton")
 ssBtn.Size = UDim2.new(0.4, 0, 0, 40)
@@ -76,7 +77,7 @@ ssBtn.Font = Enum.Font.GothamBold
 ssBtn.TextScaled = true
 ssBtn.Text = "SS: ON"
 ssBtn.ZIndex = 2
-ssBtn.Parent = blackBg
+ssBtn.Parent = g
 
 local on = false
 local collectedCache = {}
@@ -438,4 +439,4 @@ end)
 updateScore()
 st.Text = "TAP TO START | SS: ON"
 ssBtn.Text = "SS: ON"
-print("[[Ω_TRACE_PERSIST]] LOADED – Mobile ready – SS button added")
+print("[[Ω_TRACE_PERSIST]] LOADED")
