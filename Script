@@ -88,6 +88,7 @@ local lastScoreUpdate = 0
 local screensaverOn = SCREENSAVER_ENABLED
 local farmingThread = nil
 local watchdogThread = nil
+local noCrateTimer = 0
 
 local function getScore()
     local s = plr:FindFirstChild("stats")
@@ -246,94 +247,75 @@ local function collectItem(prompt)
 end
 
 local function farmingLoop()
-    while on do
-        local ok, err = pcall(function()
-            while on and not isAlive() do
+    while true do
+        local loopOk, loopErr = pcall(function()
+            while on do
+                while on and not isAlive() do
+                    if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                        st.Text = "WAITING RESPAWN... | SS: " .. (screensaverOn and "ON" or "OFF")
+                        lastGuiUpdate = tick()
+                    end
+                    task.wait(0.5)
+                end
+                if not on then break end
+
+                if not Workspace:FindFirstChild(LOOT_FOLDER) then
+                    st.Text = "FOLDER MISSING - RETRYING... | SS: " .. (screensaverOn and "ON" or "OFF")
+                    task.wait(2)
+                    continue
+                end
+
+                local crates = getCrates()
                 if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                    st.Text = "WAITING RESPAWN... | SS: " .. (screensaverOn and "ON" or "OFF")
+                    st.Text = "CRATES: " .. #crates .. " | Collected: " .. totalCollected .. " | SS: " .. (screensaverOn and "ON" or "OFF")
                     lastGuiUpdate = tick()
                 end
-                task.wait(0.5)
-            end
-            if not on then return end
 
-            if not Workspace:FindFirstChild(LOOT_FOLDER) then
-                st.Text = "FOLDER MISSING - RETRYING... | SS: " .. (screensaverOn and "ON" or "OFF")
-                task.wait(2)
-                return
-            end
-
-            local crates = getCrates()
-            if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                st.Text = "CRATES: " .. #crates .. " | Collected: " .. totalCollected .. " | SS: " .. (screensaverOn and "ON" or "OFF")
-                lastGuiUpdate = tick()
-            end
-
-            if #crates == 0 then
-                if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                    st.Text = "NO CRATES - RESETTING | SS: " .. (screensaverOn and "ON" or "OFF")
-                    lastGuiUpdate = tick()
-                end
-                task.wait(1.5)
-                if #collectedCache > 0 then
-                    collectedCache = {}
-                end
-            else
-                for _, crate in ipairs(crates) do
-                    if not on then break end
-                    if not isAlive() then break end
-
-                    if collectedCache[crate.key] then
-                        if crate.prompt.Parent and crate.prompt.Enabled then
-                            collectedCache[crate.key] = nil
-                        else
-                            continue
-                        end
-                    end
-
-                    if not crate.prompt.Parent or not crate.prompt.Enabled then
-                        collectedCache[crate.key] = true
-                        continue
-                    end
-
-                    local startScore = getScore()
-                    local startTime = tick()
-                    local collected = false
-
-                    while on and (tick() - startTime) < MAX_COLLECT_TIME do
-                        if not crate.prompt.Parent or not crate.prompt.Enabled then
-                            collected = true
-                            break
-                        end
-
-                        if getScore() > startScore then
-                            collected = true
-                            totalCollected = totalCollected + 1
-                            if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                                st.Text = "COLLECTED (" .. totalCollected .. "): " .. crate.name .. " | SS: " .. (screensaverOn and "ON" or "OFF")
-                                lastGuiUpdate = tick()
-                            end
-                            collectedCache[crate.key] = true
-                            break
-                        end
-
+                if #crates == 0 then
+                    noCrateTimer = noCrateTimer + 1
+                    if noCrateTimer > 10 then
+                        noCrateTimer = 0
+                        collectedCache = {}
+                        st.Text = "FORCE RESET CACHE | SS: " .. (screensaverOn and "ON" or "OFF")
+                        task.wait(1)
+                    else
                         if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                            st.Text = "TP → " .. crate.name .. " | SS: " .. (screensaverOn and "ON" or "OFF")
+                            st.Text = "NO CRATES - RESETTING | SS: " .. (screensaverOn and "ON" or "OFF")
                             lastGuiUpdate = tick()
                         end
+                        task.wait(1.5)
+                        if #collectedCache > 0 then
+                            collectedCache = {}
+                        end
+                    end
+                else
+                    noCrateTimer = 0
+                    for _, crate in ipairs(crates) do
+                        if not on then break end
+                        if not isAlive() then break end
 
-                        if teleportToPart(crate.part) then
-                            local targetPos = crate.part.Position + TP_OFFSET
-                            startHover(targetPos)
-
-                            task.wait(EXTRA_WAIT_AFTER_TP + math.random() * 0.05)
-
-                            if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                                st.Text = "COLLECTING " .. crate.name .. " | SS: " .. (screensaverOn and "ON" or "OFF")
-                                lastGuiUpdate = tick()
+                        if collectedCache[crate.key] then
+                            if crate.prompt.Parent and crate.prompt.Enabled then
+                                collectedCache[crate.key] = nil
+                            else
+                                continue
                             end
+                        end
 
-                            collectItem(crate.prompt)
+                        if not crate.prompt.Parent or not crate.prompt.Enabled then
+                            collectedCache[crate.key] = true
+                            continue
+                        end
+
+                        local startScore = getScore()
+                        local startTime = tick()
+                        local collected = false
+
+                        while on and (tick() - startTime) < MAX_COLLECT_TIME do
+                            if not crate.prompt.Parent or not crate.prompt.Enabled then
+                                collected = true
+                                break
+                            end
 
                             if getScore() > startScore then
                                 collected = true
@@ -343,41 +325,74 @@ local function farmingLoop()
                                     lastGuiUpdate = tick()
                                 end
                                 collectedCache[crate.key] = true
-                                stopHover()
                                 break
                             end
 
-                            stopHover()
-                        else
                             if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                                st.Text = "TP FAILED | SS: " .. (screensaverOn and "ON" or "OFF")
+                                st.Text = "TP → " .. crate.name .. " | SS: " .. (screensaverOn and "ON" or "OFF")
                                 lastGuiUpdate = tick()
                             end
+
+                            if teleportToPart(crate.part) then
+                                local targetPos = crate.part.Position + TP_OFFSET
+                                startHover(targetPos)
+
+                                task.wait(EXTRA_WAIT_AFTER_TP + math.random() * 0.05)
+
+                                if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                                    st.Text = "COLLECTING " .. crate.name .. " | SS: " .. (screensaverOn and "ON" or "OFF")
+                                    lastGuiUpdate = tick()
+                                end
+
+                                collectItem(crate.prompt)
+
+                                if getScore() > startScore then
+                                    collected = true
+                                    totalCollected = totalCollected + 1
+                                    if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                                        st.Text = "COLLECTED (" .. totalCollected .. "): " .. crate.name .. " | SS: " .. (screensaverOn and "ON" or "OFF")
+                                        lastGuiUpdate = tick()
+                                    end
+                                    collectedCache[crate.key] = true
+                                    stopHover()
+                                    break
+                                end
+
+                                stopHover()
+                            else
+                                if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                                    st.Text = "TP FAILED | SS: " .. (screensaverOn and "ON" or "OFF")
+                                    lastGuiUpdate = tick()
+                                end
+                            end
+
+                            task.wait(0.2)
                         end
 
+                        if not collected then
+                            if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
+                                st.Text = "TIMEOUT: " .. crate.name .. " | SS: " .. (screensaverOn and "ON" or "OFF")
+                                lastGuiUpdate = tick()
+                            end
+                            collectedCache[crate.key] = true
+                        end
+
+                        stopHover()
                         task.wait(0.2)
                     end
-
-                    if not collected then
-                        if tick() - lastGuiUpdate > GUI_UPDATE_INTERVAL then
-                            st.Text = "TIMEOUT: " .. crate.name .. " | SS: " .. (screensaverOn and "ON" or "OFF")
-                            lastGuiUpdate = tick()
-                        end
-                        collectedCache[crate.key] = true
-                    end
-
-                    stopHover()
-                    task.wait(0.2)
                 end
+                task.wait(0.3)
             end
-            task.wait(0.3)
         end)
 
-        if not ok then
-            st.Text = "ERROR: " .. tostring(err) .. " - RESTARTING..."
-            print("FARM ERROR:", err)
+        if not loopOk then
+            st.Text = "CRASH: " .. tostring(loopErr) .. " - RESTARTING..."
+            print("FARM LOOP CRASHED:", loopErr)
             task.wait(2)
             collectedCache = {}
+            noCrateTimer = 0
+        else
+            break
         end
     end
 
@@ -390,7 +405,7 @@ local function watchdog()
     while true do
         if on then
             if not farmingThread or task.status(farmingThread) == "dead" then
-                st.Text = "RESTARTING FARM... | SS: " .. (screensaverOn and "ON" or "OFF")
+                st.Text = "WATCHDOG RESTART... | SS: " .. (screensaverOn and "ON" or "OFF")
                 task.wait(1)
                 farmingThread = task.spawn(farmingLoop)
             end
@@ -408,6 +423,7 @@ local function toggle()
         fb.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
         collectedCache = {}
         totalCollected = 0
+        noCrateTimer = 0
         st.Text = "STARTING... | SS: " .. (screensaverOn and "ON" or "OFF")
         updateScore()
         setNoclip(true)
@@ -439,4 +455,4 @@ end)
 updateScore()
 st.Text = "TAP TO START | SS: ON"
 ssBtn.Text = "SS: ON"
-print("[[Ω_TRACE_PERSIST]] LOADED")
+print("[[Ω_TRACE_PERSIST]] LOADED – ULTRA STABLE")
